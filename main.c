@@ -104,6 +104,35 @@ int sondeTypeFromSondeName(const char *name) {
     return -1;
 }
 
+typedef struct Settings_s {
+    uint32_t freq;
+    uint8_t sondeType;
+} Settings;
+
+void loadSettings() {
+    Settings s;
+    
+    memcpy(&s,(void*)(0x08020000-sizeof s),sizeof s);
+    if (s.sondeType<0 || s.sondeType<sizeof sondes/sizeof *sondes)
+	s.sondeType=0;
+    if (s.freq<400000UL || s.freq>=406000UL)
+	s.freq=403000UL;
+    
+    freq=s.freq;
+    currentSonde=s.sondeType;
+}
+
+void saveSettings() {
+    Settings s={ .freq=freq, .sondeType=currentSonde };
+    const int size=sizeof s, addr=0x08020000-size;
+    int err=flash_erase_page(addr);
+    if (err!=ERRNO_OK) {
+	printf("errore cancellazione flash\n\r");
+	return;
+    }
+    flash_program_bytes(addr, (uint8_t*)&s, sizeof s);
+}
+
 int main(void) {
     uint32_t tLedOn=0, tLastPoll=0;
 
@@ -136,6 +165,8 @@ int main(void) {
 
     delay_ms(100);
     pwr_xo32k_lpm_cmd(true);
+    
+    loadSettings();
 
     for (int i=0;i<3;i++) {
 	blue(true);
@@ -196,6 +227,7 @@ int main(void) {
 		}
 		freq=f;
 		currentSonde=n;
+		saveSettings();
 		initRadio();
 		break;
 	    case '\r':
