@@ -113,7 +113,7 @@ void loadSettings() {
     Settings s;
     
     memcpy(&s,(void*)(0x08020000-sizeof s),sizeof s);
-    if (s.sondeType<0 || s.sondeType<sizeof sondes/sizeof *sondes)
+    if (s.sondeType<0 || s.sondeType>sizeof sondes/sizeof *sondes)
 	s.sondeType=0;
     if (s.freq<400000UL || s.freq>=406000UL)
 	s.freq=403000UL;
