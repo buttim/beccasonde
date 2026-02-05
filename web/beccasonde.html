@@ -1,0 +1,302 @@
+<!DOCTYPE HTML>
+<html>
+	<head>
+		<title></title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+		<meta name="mobile-web-app-capable" content="yes">
+		<style>
+html, body { height: 100%; margin:0}
+body { font-family: arial; background-color:#89a832; user-select:none; display:flex; flex-direction:column }
+#map { height: calc(100% - 150px); }
+#freqtype { display:flex; }
+#freqtype span { flex-grow:1}
+#info { 
+	padding:10px;
+	width:calc(100%-20px); 
+	display: flex;
+	flex-direction:column;	
+	justify-content: space-between; 
+	font-size: 1.3rem;
+	flex:1 
+}
+#freq, #type, #serial { font-weight: bold; }
+#status {
+	padding:5px;
+	padding-left:10px;
+	background-color: #9beb34;
+	font-weight: bold;
+}
+#pulsanti {
+	display: flex;
+	flex-direction: column;
+}
+#pulsanti button { width:100px; margin-bottom:5px; margin-right:10px }
+#connetti {margin-top:5px}
+#condividi {margin-top:auto }
+#dashboard { flex-grow:1; display:flex }
+		</style>
+		<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+				 integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+				 crossorigin=""/>
+		<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+				 integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+				 crossorigin=""></script>
+		<script src='https://code.jquery.com/jquery-4.0.0.slim.min.js'></script>
+		<script type="module">
+//import { serial as serialPolyfill } from "./serial.min.js";
+
+const maxDistance=150000;//10000;
+var device, buffer='', mkLocation, cirLocation, mkSonde,  pathSonde, sondeData;
+
+async function startSerial() {
+	try {
+		device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x1A86 }] });
+		await device.open();
+		await device.selectConfiguration(1);
+
+		await device.claimInterface(0); 
+
+		// CH340 INITIALIZATION (Mandatory for Android/WebUSB)
+		// This sets the baud rate to 115200 and toggles the pins to allow data flow
+		await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x1312, index: 0x8811 });
+		await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x0f2c, index: 0x0003 });
+		await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0xffff, index: 0 });
+
+		// Reset/Init request (0xA1)
+		await device.controlTransferOut({
+			requestType: 'vendor', recipient: 'device',
+			request: 0xA1, value: 0, index: 0
+		});
+
+		// High-speed clock enable
+		await device.controlTransferOut({
+			requestType: 'vendor', recipient: 'device',
+			request: 0x9A, value: 0x2727, index: 0x0000
+		});
+
+		setTimeout(()=> {
+			if (sondeData) {
+				sendData(`!${Math.trunc(sondeData.freq*1000)},${sondeData.type}\r\n`);
+				setTimeout(()=> {sendData("?");},1000);
+			}
+			else
+				sendData("?");
+		},1000);
+		$('#connetti').prop('disabled',true);
+		readLoop();
+	} catch (err) {
+		alert("Impossibile connettersi al dispositivo\n(" + err.message+ ")");
+	}
+}
+
+function onLine(line) {
+	line=line.trim();
+	if (line.length<1 || line[0]!='>') {
+//~ 		console.log(`linea ignorata (${line})`);
+		return;
+	}
+	let fields=line.substr(1).split(',');
+	if (fields.length!=9) {
+		console.log('numero campi errato');
+		return;
+	}
+	let data={
+		freq:fields[0],
+		type:fields[1],
+		serial:fields[2],
+		frame:fields[3],
+		lat:fields[4],
+		lng:fields[5],
+		alt:fields[6],
+		vVel:fields[7],
+		hVel:fields[8]
+	};
+//~ 	console.log(data);
+	if (data.serial) {
+		$('#status').html('TROVATA!');
+		sondeData.serial=data.serial;
+		sondeData.lat=data.lat;
+		sondeData.lng=data.lng;
+		$('#serial').html(data.serial);
+		$('#condividi').prop("disabled",false);
+		$('#naviga').prop("disabled",false);
+		const ll=L.latLng(data.lat,data.lng);
+		mkSonde.setLatLng(ll);
+		if (pathSonde)
+			pathSonde.addLatLng(ll);
+	}
+}
+
+async function readLoop() {
+	const decoder = new TextDecoder();
+	while (true) {
+		try {
+			const result = await device.transferIn(2, 64);
+			if (result.data.byteLength > 0) {
+				let txt=decoder.decode(result.data);
+				buffer+=txt;
+				let lines=buffer.split('\n');
+				for (let i=0;i<lines.length-1;i++)
+					onLine(lines[i]);
+				buffer=lines[lines.length-1];
+			}
+		} catch (err) {
+			 if (err.name=='NetworkError') {
+				$('#connetti').prop('disabled',false);
+				break;
+			}
+			else
+				console.error(err);
+		}
+	}
+}
+
+async function sendData(text) {
+	const encoder = new TextEncoder();
+	await device.transferOut(2, encoder.encode(text));
+}
+
+async function askSondehub(lat,lon) {
+	$('#status').html("Ricerca frequenza...");
+	try {
+	    const response = await fetch(`https://api.v2.sondehub.org/sondes?lat=${lat}&lon=${lon}&distance=${maxDistance}`);//&last=72000`);
+	    
+	    if (!response.ok)
+		throw new Error(`HTTP error! status: ${response.status}`);
+
+		const data = await response.json();
+//~ 		console.log(data);
+		var chosenSerial, minDistance;
+		for (var k in data) {
+			const d=map.distance(mkLocation.getLatLng(),L.latLng(data[k].lat,data[k].lon));
+			if (!chosenSerial || d<minDistance) {
+				chosenSerial=k;
+				minDistance=d;
+			}
+		}
+		if (!chosenSerial)
+			return undefined;
+		const freq=data[chosenSerial].tx_frequency||data[chosenSerial].frequency;
+		return {
+			'lat': data[chosenSerial].lat,
+			'lng': data[chosenSerial].lon,
+			'type': data[chosenSerial].type,
+			'freq': 405.95//////////////////////////////////////////////////////freq
+		};
+	} catch (error) {
+		$('#status').html("Impossibile recuperare info sonda");
+		console.error('There was an error:', error);
+		return null;
+	}
+}
+
+async function onLocationFound(e) {
+	const radius = e.accuracy;
+
+	if (mkLocation) {
+		mkLocation.setLatLng(e.latlng);
+		cirLocation.setLatLng(e.latlng).setRadius(radius);
+	}
+	else {
+		mkLocation=L.marker(e.latlng).addTo(map);
+		cirLocation=L.circle(e.latlng, radius).addTo(map);
+
+		sondeData=await askSondehub(e.latlng.lat,e.latlng.lng);
+		if (!sondeData) {
+			//TODO:
+			alert("Nessuna sonda trovata");
+		}
+		else {
+//~ 			console.log(sondeData);
+			$('#connetti').prop("disabled",false);
+			$('#freq').html(sondeData.freq);
+			$('#type').html(sondeData.type);
+			const sondeLocation=L.latLng(sondeData.lat,sondeData.lng);
+			var icon=L.icon({
+				iconUrl:'balloon-green.png',
+				iconSize: [46,84],
+				iconAnchor: [23, 83],
+				popupAnchor: [-3, -76],
+				//shadowUrl: 'my-icon-shadow.png',
+				//shadowSize: [68, 95],
+				//shadowAnchor: [22, 94]
+			});
+			mkSonde = L.marker(sondeLocation,{icon:icon}).addTo(map);
+			pathSonde=L.polyline([[sondeLocation]],{color:'yellow'}).addTo(map);
+			map.fitBounds(L.latLngBounds([e.latlng,sondeLocation]));
+		}
+		$('#status').html("Pronto");
+	}
+}
+
+function onLocationError(e) {
+	console.log(e.message);
+}
+
+const mapLink = '<a href="http://www.esri.com/">Esri</a>',
+	wholink = 'i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community';
+const esri=L.tileLayer(
+		'http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+		attribution: '&copy; '+mapLink+', '+wholink,
+		maxZoom: 18,
+	}),
+	osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+		maxZoom: 19,
+		attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+	});
+const map=L.map('map',{tapHold:true,layers:[osm]}).locate({setView: true, maxZoom: 16});
+
+$(function() {
+	map.on('locationfound', onLocationFound);
+	map.on('locationerror', onLocationError);
+	L.control.layers({"Mapnik":osm,"ESRI":esri,},null).addTo(map);
+	L.control.scale().addTo(map);
+	setInterval(() =>{ map.locate(); },20000);
+
+	$('#condividi').on('click', ()=>{ 
+		try {
+			if (navigator.share)
+				navigator.share({
+					title:'posizione',
+					text: `${sondeData.serial}`,
+					url: `https://maps.google.com/${sondeData.lat},${sondeData.lng}`
+				}); 
+			else
+				alert("Questo telefono non supporta Navigator API");
+		}
+		catch (e) {
+			alert(e);
+		}
+	});
+	$('#naviga').on('click', ()=>{
+		window.open(`https://www.google.com/maps/search/?api=1&query=${sondeData.lat},${sondeData.lng}`);
+	});
+	$('#connetti').on('click',()=>{startSerial();});
+	$('#connetti').prop("disabled",true);
+	$('#condividi').prop("disabled",true);
+	$('#naviga').prop("disabled",true);
+});
+		</script>
+	</head>
+	<body>
+		<div id="map"></div>
+		<span id='dashboard'>
+			<div id='info'>
+				<span id='freqtype'>
+					<span>Frequenza: <span id='freq'>?</span>MHz</span>
+					<span>Tipo: <span id='type'>?</span></span>
+				</span>
+				<div id='sonda'>
+					<span id='serial'>---</span>
+				</div>
+			</div>
+			<div id='pulsanti'>
+				<button id='connetti'>Connetti</button>
+				<button id='condividi'>Condividi</button>
+				<button id='naviga'>Naviga</button>
+			</div>
+		</span>
+		<div id='status'>Ricerca posizione...</div>
+	</body>
+</html>
