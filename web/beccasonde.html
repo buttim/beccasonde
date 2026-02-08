@@ -35,6 +35,20 @@ body { font-family: arial; background-color:#89a832; user-select:none; display:f
 #connetti {margin-top:5px}
 #condividi {margin-top:auto }
 #dashboard { flex-grow:1; display:flex }
+#dlg { background-color: #9beb34 }
+#dlg button { width: 80px; margin-left:auto; margin-right:auto; margin-top:50px!important }
+#dlg div p {font-weight:bold;margin-top:0!important }
+#dlg div form div { display:flex; flex-direction:column; }
+#dlg div form * { margin-top:10px }
+::backdrop { background-color:black; opacity: 30% }
+
+.material-symbols-outlined {
+  font-variation-settings:
+  'FILL' 0,
+  'wght' 400,
+  'GRAD' 0,
+  'opsz' 24
+}
 		</style>
 		<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
 				 integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
@@ -42,12 +56,22 @@ body { font-family: arial; background-color:#89a832; user-select:none; display:f
 		<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
 				 integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
 				 crossorigin=""></script>
+		<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=map,plug_connect,share" />
 		<script src='https://code.jquery.com/jquery-4.0.0.slim.min.js'></script>
 		<script type="module">
 //import { serial as serialPolyfill } from "./serial.min.js";
 
-const maxDistance=150000;//10000;
+const maxDistance=10000;
 var device, buffer='', mkLocation, cirLocation, mkSonde,  pathSonde, sondeData;
+const icon=L.icon({
+	iconUrl:'balloon-green.png',
+	iconSize: [46,84],
+	iconAnchor: [23, 83],
+	popupAnchor: [-3, -76],
+	//shadowUrl: 'my-icon-shadow.png',
+	//shadowSize: [68, 95],
+	//shadowAnchor: [22, 94]
+});
 
 async function startSerial() {
 	try {
@@ -93,7 +117,7 @@ async function startSerial() {
 function onLine(line) {
 	line=line.trim();
 	if (line.length<1 || line[0]!='>') {
-//~ 		console.log(`linea ignorata (${line})`);
+		console.log(`linea ignorata (${line})`);
 		return;
 	}
 	let fields=line.substr(1).split(',');
@@ -122,9 +146,14 @@ function onLine(line) {
 		$('#condividi').prop("disabled",false);
 		$('#naviga').prop("disabled",false);
 		const ll=L.latLng(data.lat,data.lng);
-		mkSonde.setLatLng(ll);
+		if (mkSonde)
+			mkSonde.setLatLng(ll);
+		else
+			mkSonde = L.marker(ll,{icon:icon}).addTo(map);
 		if (pathSonde)
 			pathSonde.addLatLng(ll);
+		else
+			pathSonde = L.polyline([[ll]],{color:'yellow'}).addTo(map);
 	}
 }
 
@@ -182,7 +211,7 @@ async function askSondehub(lat,lon) {
 			'lat': data[chosenSerial].lat,
 			'lng': data[chosenSerial].lon,
 			'type': data[chosenSerial].type,
-			'freq': 405.95//////////////////////////////////////////////////////freq
+			'freq': freq
 		};
 	} catch (error) {
 		$('#status').html("Impossibile recuperare info sonda");
@@ -203,28 +232,19 @@ async function onLocationFound(e) {
 		cirLocation=L.circle(e.latlng, radius).addTo(map);
 
 		sondeData=await askSondehub(e.latlng.lat,e.latlng.lng);
+		$('#connetti').prop("disabled",false);
+
 		if (!sondeData) {
-			//TODO:
-			alert("Nessuna sonda trovata");
+			$('#dlg')[0].showModal();
 		}
 		else {
-//~ 			console.log(sondeData);
-			$('#connetti').prop("disabled",false);
+			const sondeLocation=L.latLng(sondeData.lat,sondeData.lng);
+			map.fitBounds(L.latLngBounds([e.latlng,sondeLocation]));
+			mkSonde = L.marker(sondeLocation,{icon:icon}).addTo(map);
+			pathSonde = L.polyline([[sondeLocation]],{color:'yellow'}).addTo(map);
+
 			$('#freq').html(sondeData.freq);
 			$('#type').html(sondeData.type);
-			const sondeLocation=L.latLng(sondeData.lat,sondeData.lng);
-			var icon=L.icon({
-				iconUrl:'balloon-green.png',
-				iconSize: [46,84],
-				iconAnchor: [23, 83],
-				popupAnchor: [-3, -76],
-				//shadowUrl: 'my-icon-shadow.png',
-				//shadowSize: [68, 95],
-				//shadowAnchor: [22, 94]
-			});
-			mkSonde = L.marker(sondeLocation,{icon:icon}).addTo(map);
-			pathSonde=L.polyline([[sondeLocation]],{color:'yellow'}).addTo(map);
-			map.fitBounds(L.latLngBounds([e.latlng,sondeLocation]));
 		}
 		$('#status').html("Pronto");
 	}
@@ -232,6 +252,16 @@ async function onLocationFound(e) {
 
 function onLocationError(e) {
 	console.log(e.message);
+}
+
+function closeDialog() {
+	sondeData={
+		type:$('#tipo').val(),
+		freq:$('#frequenza').val()
+	};
+	$('#type').html(sondeData.type);
+	$('#freq').html(sondeData.freq);
+//~ 	sendData(`!${sondeData.type},${sondeData.freq}\n`);
 }
 
 const mapLink = '<a href="http://www.esri.com/">Esri</a>',
@@ -256,14 +286,15 @@ $(function() {
 
 	$('#condividi').on('click', ()=>{ 
 		try {
-			if (navigator.share)
-				navigator.share({
-					title:'posizione',
-					text: `${sondeData.serial}`,
-					url: `https://maps.google.com/${sondeData.lat},${sondeData.lng}`
-				}); 
-			else
-				alert("Questo telefono non supporta Navigator API");
+			window.open('whatsapp://send?text='+encodeURIComponent(`https://maps.google.com/${sondeData.lat},${sondeData.lng}`));
+//~ 			if (navigator.share)
+//~ 				navigator.share({
+//~ 					title:'posizione',
+//~ 					text: `${sondeData.serial}`,
+//~ 					url: `https://maps.google.com/${sondeData.lat},${sondeData.lng}`
+//~ 				}); 
+//~ 			else
+//~ 				alert("Questo telefono non supporta Navigator API");
 		}
 		catch (e) {
 			alert(e);
@@ -276,6 +307,8 @@ $(function() {
 	$('#connetti').prop("disabled",true);
 	$('#condividi').prop("disabled",true);
 	$('#naviga').prop("disabled",true);
+	
+	$('#dlg button').on('click',closeDialog);
 });
 		</script>
 	</head>
@@ -292,11 +325,36 @@ $(function() {
 				</div>
 			</div>
 			<div id='pulsanti'>
-				<button id='connetti'>Connetti</button>
-				<button id='condividi'>Condividi</button>
-				<button id='naviga'>Naviga</button>
+				<button id='connetti' class='material-symbols-outlined'>plug_connect</button>
+				<button id='condividi' class='material-symbols-outlined'>share</button>
+				<button id='naviga' class='material-symbols-outlined'>map</button>
 			</div>
 		</span>
 		<div id='status'>Ricerca posizione...</div>
+		<dialog id='dlg'>
+			<div class="content">
+				<form method="dialog">
+					<p>Impostazioni</p>
+					<div>
+						<span>
+							<label for="Tipo">Tipo: </label>
+							<select type="text" id="tipo" name="tipo">
+								<option>RS41</option>
+								<option>M20</option>
+								<option>M10</option>
+								<option>DFM09</option>
+								<option>DFM17</option>
+								<option>RD41</option>
+							</select>
+						</span>
+						<span>
+							<label for="Frequenza">Frequenza: </label>
+							<input type="number" min='400'  max='406' value='403.7' step='0.01' id="frequenza" name="frequenza" />
+						</span>
+						<button type="submit">OK</button>
+					</div>
+				</form>
+			</div>
+		</dialog>
 	</body>
 </html>
