@@ -234,7 +234,7 @@ int main(void) {
 	    case '\n':
 		break;
 	    default:
-		printf("???\n");
+            printf("???\n");
 		break;
 	    }
 	}

@@ -220,7 +220,7 @@ static  bool processPacket(uint8_t buf[]) {
   for (int i = 0; i < actualPacketLength; i++)
     buf[i] = whitening[i % sizeof whitening] ^ flipByte[buf[i]];
 
-  if (!correctErrors(buf, actualPacketLength) && buf[48] == 0x0F) {
+  if (!correctErrors(buf, actualPacketLength)) {
     printf("ECC failed\n\r");
     return false;
   }

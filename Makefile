@@ -9,7 +9,7 @@ $(PROJECT)_SOURCE := $(wildcard *.c) $(wildcard *.cpp)  \
     $(wildcard $(TREMO_SDK_PATH)/lora/system/*.c)  \
     $(wildcard $(TREMO_SDK_PATH)/drivers/peripheral/src/*.c)
 
-$(PROJECT)_INC_PATH := . ~/Reed-Solomon/include  \
+$(PROJECT)_INC_PATH := . ../Reed-Solomon/include  \
     $(TREMO_SDK_PATH)/platform/CMSIS \
     $(TREMO_SDK_PATH)/platform/common \
     $(TREMO_SDK_PATH)/platform/system \
@@ -19,7 +19,7 @@ $(PROJECT)_INC_PATH := . ~/Reed-Solomon/include  \
     $(TREMO_SDK_PATH)/lora/radio/sx126x  \
     $(TREMO_SDK_PATH)/drivers/peripheral/inc
 
-$(PROJECT)_CFLAGS  := -Wall -Os -ffunction-sections -mfpu=fpv4-sp-d16 -mfloat-abi=softfp -fsingle-precision-constant -std=c2x -fno-builtin-printf -fno-builtin-sprintf -fno-builtin-snprintf -fno-math-errno 
+$(PROJECT)_CFLAGS  := -Wall -Os -ffunction-sections -mfpu=fpv4-sp-d16 -mfloat-abi=softfp -fsingle-precision-constant -std=c1x -fno-builtin-printf -fno-builtin-sprintf -fno-builtin-snprintf -fno-math-errno 
 $(PROJECT)_CXXFLAGS  := -Wall -Os -ffunction-sections -mfpu=fpv4-sp-d16 -mfloat-abi=softfp -fsingle-precision-constant -fno-builtin-printf -fno-builtin-sprintf -fno-builtin-snprintf -fno-math-errno 
 $(PROJECT)_DEFINES := -DCONFIG_DEBUG_UART=UART0
 
