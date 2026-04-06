@@ -11,6 +11,7 @@ extern "C" {
 #include "tremo_crc.h"
 #pragma GCC diagnostic pop    
 #include "radioif.h"
+#include "uart.h"
 }
 #include "rs41.h"
 
@@ -22,7 +23,7 @@ Sonde rs41 = {
   .bitRate = 4800,
   .afcBandWidth = 250000,
   .frequencyDeviation = 6300,
-  .bandwidthHz = 6300,
+  .bandwidthHz = 19500,//6300, //no TCXO, greater bw required 
   .packetLength = RS41_PACKET_LENGTH,
   .partialPacketLength = 48,
   .preambleLengthBytes = 3,
@@ -221,7 +222,8 @@ static  bool processPacket(uint8_t buf[]) {
     buf[i] = whitening[i % sizeof whitening] ^ flipByte[buf[i]];
 
   if (!correctErrors(buf, actualPacketLength)) {
-    printf("ECC failed\n\r");
+    printf("ECC failed (length=%d)\n\r", actualPacketLength);
+    dump(buf, actualPacketLength, 32);
     return false;
   }
   while (n < actualPacketLength) {
